@@ -81,13 +81,19 @@ class CheckDueTasks extends Command
             $taskDueDate = Carbon::parse($task->due_date);
             $daysUntilDue = $today->diffInDays($taskDueDate, false);
             
+            // Load user relationship to determine recipient
+            $task->load('user');
+            $recipient = $task->user_id && $task->user 
+                ? $task->user->email 
+                : (env('ADMIN_EMAIL') ?: 'Admin (from env)');
+            
             // Dispatch job to send email notification
             SendTaskDueSoonNotification::dispatch($task, $daysUntilDue);
             
             $statusText = $daysUntilDue < 0 
                 ? "OVERDUE (" . abs($daysUntilDue) . " days ago)" 
                 : ($daysUntilDue == 0 ? 'TODAY' : "in {$daysUntilDue} day(s)");
-            $this->line("Queued notification for task: {$task->title} (Due: {$task->due_date} - {$statusText})");
+            $this->line("Queued notification for task: {$task->title} (Due: {$task->due_date} - {$statusText}) → {$recipient}");
         }
 
         $this->info('All notifications have been queued.');

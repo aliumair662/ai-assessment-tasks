@@ -29,22 +29,43 @@ class SendTaskDueSoonNotification implements ShouldQueue
      */
     public function handle(): void
     {
-        $adminEmail = env('ADMIN_EMAIL');
+        // Load the user relationship if it exists
+        $this->task->load('user');
         
-        if (!$adminEmail) {
-            \Log::warning('ADMIN_EMAIL not configured. Skipping task due notification.');
-            return;
+        // Determine recipient: assigned user if exists, otherwise admin
+        $recipientEmail = null;
+        $recipientName = null;
+        
+        if ($this->task->user_id && $this->task->user) {
+            // Task is assigned to a user, send to that user
+            $recipientEmail = $this->task->user->email;
+            $recipientName = $this->task->user->name;
+        } else {
+            // No user assigned, send to admin
+            $adminEmail = env('ADMIN_EMAIL');
+            
+            if (!$adminEmail) {
+                \Log::warning('ADMIN_EMAIL not configured and task has no assigned user. Skipping task due notification.', [
+                    'task_id' => $this->task->id,
+                    'task_title' => $this->task->title
+                ]);
+                return;
+            }
+            
+            $recipientEmail = $adminEmail;
+            $recipientName = 'Admin';
         }
 
         try {
-            Mail::to($adminEmail)->send(
+            Mail::to($recipientEmail)->send(
                 new TaskDueSoonNotification($this->task, $this->daysUntilDue)
             );
-            \Log::info("Task due notification sent successfully for task: {$this->task->title} to {$adminEmail}");
+            \Log::info("Task due notification sent successfully for task: {$this->task->title} to {$recipientEmail} ({$recipientName})");
         } catch (\Exception $e) {
             \Log::error("Failed to send task due notification: " . $e->getMessage(), [
                 'task_id' => $this->task->id,
-                'admin_email' => $adminEmail,
+                'recipient_email' => $recipientEmail,
+                'recipient_name' => $recipientName,
                 'error' => $e->getTraceAsString()
             ]);
             // Re-throw to mark job as failed
